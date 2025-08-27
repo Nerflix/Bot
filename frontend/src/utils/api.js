@@ -1,40 +1,69 @@
-// Updated API Utils - frontend/src/utils/api.js
+// Production API Utils - frontend/src/utils/api.js
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // Store the detected public IP globally
 let detectedPublicIP = null;
 
 /**
+ * Create fetch with timeout
+ */
+const fetchWithTimeout = async (url, options = {}, timeout = 5000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+};
+
+/**
  * Get public IP from external service
  */
 const getPublicIPFromService = async () => {
-  try {
-    const services = [
-      'https://api.ipify.org?format=json',
-      'https://ipapi.co/json/',
-      'https://httpbin.org/ip'
-    ];
-    
-    for (const service of services) {
-      try {
-        const response = await fetch(service, { timeout: 5000 });
-        const data = await response.json();
-        
-        const ip = data.ip || data.origin || data.query;
-        if (ip) {
-          detectedPublicIP = ip;
-          return ip;
-        }
-      } catch (serviceError) {
-        continue;
-      }
+  const services = [
+    {
+      url: 'https://api.ipify.org?format=json',
+      parseIP: (data) => data.ip
+    },
+    {
+      url: 'https://ipapi.co/json/',
+      parseIP: (data) => data.ip
+    },
+    {
+      url: 'https://httpbin.org/ip',
+      parseIP: (data) => data.origin
     }
-    
-    throw new Error('All IP services failed');
-    
-  } catch (error) {
-    return '127.0.0.1';
+  ];
+  
+  for (const service of services) {
+    try {
+      const response = await fetchWithTimeout(service.url, {}, 5000);
+      
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      const ip = service.parseIP(data);
+      
+      if (ip && ip !== '127.0.0.1' && ip !== '::1') {
+        detectedPublicIP = ip;
+        return ip;
+      }
+      
+    } catch (serviceError) {
+      continue;
+    }
   }
+  
+  detectedPublicIP = '127.0.0.1';
+  return '127.0.0.1';
 };
 
 /**
@@ -58,13 +87,20 @@ const apiRequest = async (endpoint, options = {}) => {
       headers
     };
     
-    const response = await fetch(url, requestOptions);
-    const data = await response.json();
+    const response = await fetchWithTimeout(url, requestOptions, 10000);
     
     if (!response.ok) {
-      throw new Error(data.message || `HTTP ${response.status}`);
+      const errorText = await response.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { message: errorText };
+      }
+      throw new Error(errorData.message || `Request failed`);
     }
     
+    const data = await response.json();
     return data;
     
   } catch (error) {
@@ -77,12 +113,14 @@ const apiRequest = async (endpoint, options = {}) => {
  */
 export const testConnection = async () => {
   try {
-    return await apiRequest('/test');
+    const result = await apiRequest('/test');
+    return result;
   } catch (error) {
     return {
       success: false,
       message: error.message,
-      error: error
+      error: error.message,
+      timestamp: new Date().toISOString()
     };
   }
 };
@@ -92,22 +130,23 @@ export const testConnection = async () => {
  */
 export const getPublicIP = async () => {
   try {
-    const result = await apiRequest('/ip');
-    if (result.success && result.ip && result.ip !== '127.0.0.1' && result.ip !== '::1') {
-      detectedPublicIP = result.ip;
-      return result.ip;
+    // Try API first
+    try {
+      const result = await apiRequest('/ip');
+      if (result.success && result.ip && result.ip !== '127.0.0.1' && result.ip !== '::1') {
+        detectedPublicIP = result.ip;
+        return result.ip;
+      }
+    } catch (apiError) {
+      // Fallback to external services
     }
     
     const publicIP = await getPublicIPFromService();
-    detectedPublicIP = publicIP;
     return publicIP;
     
   } catch (error) {
-    try {
-      return await getPublicIPFromService();
-    } catch (fallbackError) {
-      return '127.0.0.1';
-    }
+    detectedPublicIP = '127.0.0.1';
+    return '127.0.0.1';
   }
 };
 
@@ -187,9 +226,7 @@ export const stopMiningSession = async (sessionId) => {
 export const initializeAPI = async () => {
   try {
     await getPublicIPFromService();
-    
     return { success: true, publicIP: detectedPublicIP };
-    
   } catch (error) {
     return { success: false, error: error.message };
   }
