@@ -29,11 +29,7 @@ pids/
 **/*firebase-key*.json
 **/*firebase-adminsdk*.json
 
-# Build outputs
-dist/
-build/
-./frontend/build/
-./frontend/dist/
+
 
 # IDE files
 .vscode/
