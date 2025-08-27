@@ -76,7 +76,7 @@ try {
 
 // Serve static files from frontend
 console.log('📁 Setting up static file serving...');
-const staticPath = path.join(__dirname, '../frontend/dist');
+const staticPath = path.join(__dirname, './frontend/dist');
 console.log('Static files path:', staticPath);
 
 try {
@@ -94,7 +94,7 @@ app.use((req, res, next) => {
     return next();
   }
   
-  const indexPath = path.join(__dirname, '../frontend/dist/index.html');
+  const indexPath = path.join(__dirname, './frontend/dist/index.html');
   res.sendFile(indexPath, (err) => {
     if (err) {
       console.error('❌ Error serving index.html:', err);
